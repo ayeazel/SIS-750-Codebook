@@ -8,4 +8,4 @@ Files for the project:
 - `slidescript.Rmd` code for creating the slides 
 - `index.html` with the output 
 
-See the slides at URL.
+**See the slides** on gh-pages [at this link](https://ayeazel.github.io/SIS-750-Codebook/#1)
