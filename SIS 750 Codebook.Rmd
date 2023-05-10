@@ -1,0 +1,343 @@
+---
+title: "Abbreviated UCDP GED/Non-State Conflict Dataset Codebook"
+author: "Adam Yeazel"
+date: "2023-03-16"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(haven)
+getwd()
+setwd("/Users/adamyeazel/Desktop/American University/SIS 750 Data Analysis/Problem Sets/Codebook/SIS 750 Codebook")
+
+# load data
+ged = read_csv("GEDEvent_v22_1.csv")
+ucdp_nonstate = read_csv("ucdp-nonstate-221.csv")
+```
+
+```{r cleaning}
+# renaming to match non-state data, prepping for merge
+ged = ged %>% 
+  rename(conflict_id = conflict_new_id)
+
+# merge
+df = merge(ged, ucdp_nonstate, by = "conflict_id")
+
+# selecting 
+df2 = df %>% 
+  select("conflict_id", 
+         "year.x",
+         "active_year",
+         "dyad_dset_id",
+         "dyad_name",
+         "side_a",
+         "side_b",
+         "number_of_sources",
+         "source_original",
+         "event_clarity",
+         "country",
+         "deaths_a",
+         "deaths_b",
+         "best"
+         ) %>% 
+  rename(year = year.x,
+         active = active_year) %>% 
+  mutate(death_estimate = best)
+
+# creating deaths ratio
+df2 = df2 %>% mutate(death_ratio = deaths_a / deaths_b,
+                     .before = deaths_a)
+
+# creating factor function
+FctWhen = function(...) {
+  args = rlang::list2(...)
+  rhs = map(args, rlang::f_rhs)
+  cases = case_when( !!!args )
+  exec(fct_relevel, cases, !!!rhs)
+}
+
+# creating new factor variable on severity of casualties
+df3 = df2 %>% 
+  mutate(
+    severity = FctWhen(
+      best <= 2 ~ "Low",
+      best <=10 ~ "Medium",
+      best >50 ~ "High",
+      TRUE ~ "-99"
+    ),
+    .keep = 'unused', 
+    .after = death_estimate)
+
+df3 = df2 %>% 
+  mutate(
+    active = FctWhen(
+      active == 1 ~ "Active conflict",
+      active == 0 ~ "Otherwise",
+      TRUE ~ "-99"
+    ),
+    .keep = 'unused', 
+    .after = active)
+
+df3 = df2 %>% 
+  mutate(
+    event_clarity = FctWhen(
+      event_clarity == 1 ~ "High clarity",
+      event_clarity == 2 ~ "Low clarity",
+      TRUE ~ "-99"
+    ),
+    .keep = 'unused', 
+    .after = event_clarity)
+
+# replacing with haven labels
+df4 = df2 %>% 
+  mutate(
+    event_clarity = case_when(
+      event_clarity == 1 ~ 1,
+      event_clarity == 2 ~ 0,
+      TRUE ~ -99
+    ) %>% 
+      labelled(., labels = c("High clarity" = 1, "Low clarity" = 0, "n/r" = -99))  
+  )
+
+df4 = df4 %>% 
+  mutate(
+    active = case_when(
+      active == 1 ~ 1,
+      active == 0 ~ 0,
+      TRUE ~ -99
+    ) %>% 
+      labelled(., labels = c("Active conflict" = 1, "Otherwise" = 0, "n/r" = -99))
+)
+
+df4 = df4 %>% 
+  mutate(
+    severity = case_when(
+      best <= 2 ~ 1,
+      best <=20 ~ 2,
+      best >=20 ~ 3,
+      TRUE ~ -99
+    ) %>% 
+      labelled(., labels = c("High" = 3, "Medium" = 2, "Low" = 1, "n/r" = -99))  
+  )
+
+# cleaning up double count of best death estimate
+df4 = df4 %>% 
+  select(-best)
+
+# replacing na's in death_ratio
+# na_if(df4$death_ratio, NaN)
+# na_if(df4$death_ratio, Inf)
+
+# replacing all NA's 
+df4[is.na(df4)] = -99 
+  
+```
+
+
+```{r tables}
+# creating a function to create tables
+codebookfactor = function(.data, x){
+  x = enquo(x) 
+  count(.data, !!x) %>% 
+  mutate(
+    values = as.numeric(!!x), # !!x is un-enquoting your variable
+    labels = as_factor(!!x), # holding the variable name in this little box, then walking it into the function and handing out the bats to the kids inside the party to break open the pinata box.
+    freq = n,
+    pct = n/sum(n)*100,
+    .keep = 'unused'
+  ) %>% 
+  knitr::kable(format = 'pipe', digits = 1L)
+}
+
+# saving dataset
+save(df4, file = 'ucdpdata.rdata')
+df5 = df4 %>% 
+  select(-c(dyad_name,
+            side_a,
+            side_b,
+            source_original,
+            country))
+write_csv(df5, file = 'ucdpdata.csv')
+```
+
+
+## Overview 
+This data is a combination of two datasets from the Uppsala Conflict Data Program (UCDP) from the Department of Peace and Conflict Research, Uppsala University. The datasets combined are the UCDP Georeferenced Event dataset and the UCDP Non-State Conflict dataset. The aim of this dataset is to provide researchers an accessible initial glimpse into non-state conflict event reporting and fatalities.
+
+### Sources and Methodology
+The sources of this data are the UCDP Georeferenced Event dataset and the UCDP Non-State Conflict dataset, cited below. The methods used in creating this dataset involved accessing publicly available data from UCDP and cleaning in `tidyverse` in R.
+
+UCDP Georeferenced Event Dataset
+
+1. Sundberg, Ralph, and Erik Melander, 2013, “Introducing the UCDP Georeferenced Event Dataset”, Journal of Peace Research, vol.50, no.4, 523-532
+
+UCDP Non-State Conflict 
+
+1. Sundberg, Ralph, Kristine Eck & Joakim Kreutz (2012). Introducing the UCDP Non-State Conflict Dataset. Journal of Peace Research 49(2):351-362.
+2. Davies, Shawn, Therese Pettersson & Magnus Öberg (2022). Organized violence 1989-2021 and drone warfare. Journal of Peace Research 59(4).
+
+### Note on Missing Values
+Missing values in this dataset have been assigned to "-99".
+
+### Variables  
+
+##### Conflict ID Code  
+Variable name: `conflict_id`  
+Variable type: numeric
+
+A numeric code assigned to each unique conflict event.
+
+##### Year  
+Variable name: `year`  
+Variable type: numeric 
+
+The year in which the conflict started.
+
+##### Active Conflict  
+Variable name: `active`  
+Variable type: numeric 
+
+A binary code as to whether the conflict is currently active and ongoing. Active conflicts are denoted "1" and other conflicts are denoted "0".
+
+```{r active}
+# making tables
+codebookfactor(df4, active)
+```
+
+##### Dyad Code  
+Variable name: `dyad_dset_id`  
+Variable type: numeric
+
+A numeric code assigned to each dyad, or pairing of two sides in a conflict. 
+
+##### Dyad Name  
+Variable name: `dyad_name`  
+Variable type: character
+
+A unique name for the conflict combining the names of the two parties involved. 
+
+##### First Party in the Conflict   
+Variable name: `side_a`    
+Variable type: character  
+
+The name of the first side in a conflict. 
+
+##### Second Party in the Conflict 
+Variable name: `side_b`    
+Variable type: character  
+
+The name of the second side in a conflict. 
+
+##### Number of News Sources   
+Variable name: `number_of_sources`    
+Variable type: numeric
+
+A numeric value of the number of sources used to determine the events of a conflict event. Sources denoted with "-1" are sources that are over a year old, but have still been verified. 
+
+##### Original Source 
+Variable name: `source_original`    
+Variable type: character  
+
+A description of the original source of information regarding the conflict event. 
+
+##### Event Clarity  
+Variable name: `event_clarity`    
+Variable type: numeric
+
+A numeric score given to assess the clarity/reliability of descriptions of the conflict event. A score of 1 indicates high confidence and clarity, a score of 0 indicates lower confidence and clarity in sources. 
+
+```{r clarity}
+# making tables
+codebookfactor(df4, event_clarity)
+```
+
+##### Country  
+Variable name: `country`    
+Variable type: character  
+
+The country name where the conflict occurred.
+
+##### Death Ratio  
+Variable name: `death_ratio`    
+Variable type: numeric
+
+The ratio of deaths from Side A to Side B in the conflict event. 
+
+##### Deaths on Side A  
+Variable name: `deaths_a`    
+Variable type: numeric
+
+The number of confirmed deaths on Side A in the conflict event. 
+
+```{r deatha}
+# summary tables for numeric variables
+df4 %>% 
+  summarize(
+    Min = min(deaths_a),
+    Mean = mean(deaths_a),
+    Median = median(deaths_a),
+    Max = max(deaths_a)
+  ) %>% 
+  knitr::kable(format = 'pipe', digits = 1L)
+  # kbl(caption = "Deaths Side A", digits = 1L) %>% 
+  # kable_classic(full_width = F, html_font = "Cambria")
+```
+
+##### Deaths on Side B  
+Variable name: `deaths_b`    
+Variable type: numeric
+
+The number of confirmed deaths on Side B in the conflict event. 
+
+```{r deathb}
+# summary tables for numeric variables
+df4 %>% 
+  summarize(
+    Min = min(deaths_b),
+    Mean = mean(deaths_b),
+    Median = median(deaths_b),
+    Max = max(deaths_b)
+  ) %>% 
+  knitr::kable(format = 'pipe', digits = 1L)
+  # kbl(caption = "Deaths Side A", digits = 1L) %>% 
+  # kable_classic(full_width = F, html_font = "Cambria")
+```
+
+##### Total Deaths Estimate  
+Variable name: `deaths_estimate`    
+Variable type: numeric
+
+The best estimate of total number of deaths that occurred during the conflict event. Does not require attributing deaths to either Side A or Side B. 
+
+
+```{r deathse}
+# summary tables for numeric variables
+df4 %>% 
+  summarize(
+    Min = min(death_estimate),
+    Mean = mean(death_estimate),
+    Median = median(death_estimate),
+    Max = max(death_estimate)
+  ) %>% 
+  knitr::kable(format = 'pipe', digits = 1L)
+  # kbl(caption = "Deaths Side A", digits = 1L) %>% 
+  # kable_classic(full_width = F, html_font = "Cambria")
+```
+
+##### Severity of Fatalities 
+Variable name: `severity`    
+Variable type: numeric
+
+The numeric code unique to this dataset denoting the severity/lethality of the conflict event. A code of "1" denotes a low level of severity with 2 or fewer deaths, "2" indicates a medium level with 20 or fewer deaths, and "3" indicates a high level of severity with greater than 20 deaths. 
+
+```{r severity}
+# making tables
+codebookfactor(df4, severity)
+```
+
